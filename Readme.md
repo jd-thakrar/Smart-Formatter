@@ -1,6 +1,6 @@
-# 🧠 SmartFormatter Pro
+# 🧠 Smart-Formatter
 
-**SmartFormatter Pro** is a professional desktop Java application that automatically generates **IEEE-style research paper PDFs**.  
+**Smart-Formatter** is a professional desktop Java application that automatically generates **IEEE-style research paper PDFs**.  
 It supports double-column formatting, auto page numbering, tables, equations, and secure user login via **MySQL (XAMPP)**.
 
 ---

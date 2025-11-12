@@ -3,6 +3,7 @@ package com.smartformatter;
 import com.lowagie.text.*;
 import com.lowagie.text.pdf.*;
 import java.awt.Color;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.file.Files;
@@ -11,131 +12,100 @@ import java.util.List;
 
 public class IEEEGenerator {
 
-    // ---------- Data structure ----------
     private static class Block {
         String type;
         String text;
         Block(String t, String s) { type = t; text = s; }
     }
 
-    // ---------- Page Number Footer ----------
-    private static class PageNumberEvent extends PdfPageEventHelper {
-        private final Font footerFont;
-
-        public PageNumberEvent() throws Exception {
-            BaseFont bf = BaseFont.createFont(BaseFont.TIMES_ROMAN, BaseFont.WINANSI, BaseFont.EMBEDDED);
-            footerFont = new Font(bf, 9, Font.NORMAL, new Color(100, 100, 100));
-        }
-
-        @Override
-        public void onEndPage(PdfWriter writer, Document document) {
-            PdfContentByte cb = writer.getDirectContent();
-            Phrase footer = new Phrase(String.valueOf(writer.getPageNumber()), footerFont);
-            // 🔧 Moved lower for better placement
-            ColumnText.showTextAligned(cb, Element.ALIGN_CENTER, footer,
-                    (document.right() + document.left()) / 2,
-                    document.bottom() - 30, 0);
-        }
-    }
-
-    // ---------- Generator ----------
     public static void generateFromText(String input, String outPath, boolean twoColumn) throws Exception {
+
         String[] lines = input.replace("\r", "").split("\n");
         int i = 0;
 
-        String title = "";
-        StringBuilder author = new StringBuilder();
+        // ---- Title ----
+        String title = lines[i++].trim();
+        while (i < lines.length && lines[i].trim().isEmpty()) i++;
+
+        // ---- Author(s) ----
+        String authors = lines[i++].trim() + "\n" + lines[i++].trim() + "\n" + lines[i++].trim();
+        while (i < lines.length && lines[i].trim().isEmpty()) i++;
+
+        // ---- Abstract ----
+        if (lines[i].trim().equalsIgnoreCase("Abstract")) i++;
         StringBuilder abs = new StringBuilder();
-        String keywords = "";
-
-        // ---- Parse title ----
-        if (i < lines.length) title = lines[i++].trim();
-        while (i < lines.length && lines[i].trim().isEmpty()) i++;
-
-        // ---- Parse authors ----
-        while (i < lines.length && !lines[i].trim().equalsIgnoreCase("Abstract")) {
-            author.append(lines[i++].trim()).append("\n");
-            if (author.toString().toLowerCase().contains("email")) break;
-        }
-        while (i < lines.length && lines[i].trim().isEmpty()) i++;
-
-        // ---- Parse abstract ----
-        if (i < lines.length && lines[i].trim().equalsIgnoreCase("Abstract")) i++;
-        while (i < lines.length && !lines[i].toLowerCase().startsWith("keywords")) {
+        while (i < lines.length && !lines[i].toLowerCase().startsWith("keywords"))
             abs.append(lines[i++].trim()).append(" ");
-        }
+        String abstractText = abs.toString().trim();
+        while (i < lines.length && lines[i].trim().isEmpty()) i++;
 
-        // ---- Parse keywords ----
-        if (i < lines.length && lines[i].toLowerCase().startsWith("keywords"))
-            keywords = lines[i++].trim();
+        // ---- Keywords ----
+        String keywords = lines[i++].trim();
+        while (i < lines.length && lines[i].trim().isEmpty()) i++;
 
-        // ---- Parse remaining content ----
+        // ---- Parse Remaining Blocks ----
         List<Block> blocks = new ArrayList<>();
         for (; i < lines.length; i++) {
             String s = lines[i].trim();
             if (s.isEmpty()) continue;
 
-            if (s.matches("^\\d+\\..*")) blocks.add(new Block("SECTION", s));
-            else if (s.startsWith("!")) blocks.add(new Block("IMAGE", s.substring(1, s.length() - 1).trim()));
-            else if (s.startsWith("|TABLE|")) {
-                StringBuilder tb = new StringBuilder();
-                tb.append(s).append("\n");
-                i++;
-                while (i < lines.length && !lines[i].contains("|ENDTABLE|"))
-                    tb.append(lines[i++]).append("\n");
-                if (i < lines.length) tb.append(lines[i]).append("\n");
-                blocks.add(new Block("TABLE", tb.toString()));
-            } else blocks.add(new Block("PARA", s));
+            if (s.matches("^\\d+\\..*"))
+                blocks.add(new Block("SECTION", s));
+            else if (s.startsWith("!"))
+                blocks.add(new Block("IMAGE", s.substring(1).trim()));
+            else if (s.startsWith("|TABLE|"))
+                blocks.add(new Block("TABLE", readTable(lines, i)));
+            else if (s.startsWith("$") && s.endsWith("$"))
+                blocks.add(new Block("EQUATION", s.substring(1, s.length() - 1).trim()));
+            else
+                blocks.add(new Block("PARA", s));
         }
 
-        // ---- PDF setup ----
+        // ---- PDF Setup ----
         Document doc = new Document(PageSize.A4, 56, 56, 70, 70);
         PdfWriter writer = PdfWriter.getInstance(doc, new FileOutputStream(outPath));
-        writer.setPageEvent(new PageNumberEvent());
         doc.open();
 
-        // ---- Fonts ----
-        BaseFont bf = BaseFont.createFont(BaseFont.TIMES_ROMAN, BaseFont.WINANSI, BaseFont.EMBEDDED);
-        Font titleFont = new Font(bf, 14, Font.BOLD);
-        Font authorFont = new Font(bf, 12, Font.NORMAL);
-        Font absHeadFont = new Font(bf, 12, Font.BOLD);
-        Font absBodyFont = new Font(bf, 10, Font.ITALIC);
-        Font keyFont = new Font(bf, 10, Font.NORMAL);
-        Font secFont = new Font(bf, 12, Font.BOLD);
-        Font paraFont = new Font(bf, 10, Font.NORMAL);
-        Font hFont = new Font(bf, 9, Font.BOLD);
-        Font cFont = new Font(bf, 9, Font.NORMAL);
-        Font capFont = new Font(bf, 9, Font.ITALIC);
+        BaseFont base = BaseFont.createFont(BaseFont.TIMES_ROMAN, BaseFont.WINANSI, BaseFont.EMBEDDED);
+        Font titleFont = new Font(base, 14, Font.BOLD);
+        Font authorFont = new Font(base, 12, Font.NORMAL);
+        Font absHeadFont = new Font(base, 12, Font.BOLD);
+        Font absBodyFont = new Font(base, 10, Font.ITALIC);
+        Font keyFont = new Font(base, 10, Font.NORMAL);
+        Font secFont = new Font(base, 12, Font.BOLD);
+        Font paraFont = new Font(base, 10, Font.NORMAL);
+        Font capFont = new Font(base, 9, Font.ITALIC);
+        Font eqFont = new Font(base, 14, Font.BOLD);
 
         // ---- Header ----
-        Paragraph pTitle = new Paragraph(title, titleFont);
-        pTitle.setAlignment(Element.ALIGN_CENTER);
-        doc.add(pTitle);
+        Paragraph t = new Paragraph(title, titleFont);
+        t.setAlignment(Element.ALIGN_CENTER);
+        doc.add(t);
         doc.add(Chunk.NEWLINE);
 
-        Paragraph pAuth = new Paragraph(author.toString().trim(), authorFont);
-        pAuth.setAlignment(Element.ALIGN_CENTER);
-        doc.add(pAuth);
+        Paragraph a = new Paragraph(authors, authorFont);
+        a.setAlignment(Element.ALIGN_CENTER);
+        doc.add(a);
         doc.add(Chunk.NEWLINE);
 
-        Paragraph pAbsH = new Paragraph("Abstract", absHeadFont);
-        pAbsH.setAlignment(Element.ALIGN_CENTER);
-        doc.add(pAbsH);
+        Paragraph absh = new Paragraph("Abstract", absHeadFont);
+        absh.setAlignment(Element.ALIGN_CENTER);
+        doc.add(absh);
 
-        Paragraph pAbsB = new Paragraph(abs.toString().trim(), absBodyFont);
-        pAbsB.setAlignment(Element.ALIGN_JUSTIFIED);
-        pAbsB.setSpacingAfter(10);
-        doc.add(pAbsB);
+        Paragraph absb = new Paragraph(abstractText, absBodyFont);
+        absb.setAlignment(Element.ALIGN_JUSTIFIED);
+        absb.setSpacingAfter(12);
+        doc.add(absb);
 
-        Paragraph pKey = new Paragraph(keywords, keyFont);
-        pKey.setSpacingAfter(14);
-        doc.add(pKey);
+        Paragraph kw = new Paragraph(keywords, keyFont);
+        kw.setSpacingAfter(14);
+        doc.add(kw);
 
         // ---- Columns ----
         PdfContentByte cb = writer.getDirectContent();
         ColumnText ct = new ColumnText(cb);
         float gap = 20f;
-        float colW = (doc.right() - doc.left() - (twoColumn ? gap : 0)) / (twoColumn ? 2f : 1f);
+        float colW = (doc.right() - doc.left() - gap) / 2f;
         float startY = writer.getVerticalPosition(true);
 
         Rectangle[] cols = {
@@ -144,138 +114,160 @@ public class IEEEGenerator {
         };
 
         int col = 0;
-        setColumn(ct, cols[col]);
+        setCol(ct, cols[col]);
+        int figCount = 1;
 
-        // ---- Render ----
+        // ---- Add Content ----
         for (Block b : blocks) {
             switch (b.type) {
                 case "SECTION":
-                    Paragraph sHead = new Paragraph(b.text, secFont);
-                    sHead.setSpacingBefore(8);
-                    sHead.setSpacingAfter(4);
-                    ct.addElement(sHead);
+                    Paragraph sH = new Paragraph(b.text, secFont);
+                    sH.setSpacingBefore(10);
+                    sH.setSpacingAfter(4);
+                    ct.addElement(sH);
                     break;
 
                 case "PARA":
-                    Paragraph para = new Paragraph(b.text, paraFont);
-                    para.setAlignment(Element.ALIGN_JUSTIFIED);
-                    para.setFirstLineIndent(12);
-                    para.setSpacingBefore(0);
-                    para.setSpacingAfter(6);
-                    ct.addElement(para);
+                    Paragraph p = new Paragraph(b.text, paraFont);
+                    p.setAlignment(Element.ALIGN_JUSTIFIED);
+                    p.setFirstLineIndent(12f);
+                    ct.addElement(p);
+                    break;
+
+                case "EQUATION":
+                    Paragraph eq = new Paragraph(b.text, eqFont);
+                    eq.setAlignment(Element.ALIGN_CENTER);
+                    eq.setSpacingBefore(10);
+                    eq.setSpacingAfter(10);
+                    ct.addElement(eq);
                     break;
 
                 case "IMAGE":
-                    addImage(ct, b.text, colW, capFont);
+                    try {
+                        String[] parts = b.text.split("\\|", 2);
+                        String path = parts[0].trim();
+                        String caption = (parts.length > 1) ? parts[1].trim() : "";
+
+                        byte[] imgBytes = Files.readAllBytes(new File(path).toPath());
+                        Image img = Image.getInstance(imgBytes);
+                        img.scaleToFit(colW - 8, 260);
+
+                        Paragraph imgWrap = new Paragraph();
+                        imgWrap.setAlignment(Element.ALIGN_CENTER);
+                        imgWrap.add(new Chunk(img, 0, 0));
+                        imgWrap.setSpacingBefore(6);
+                        imgWrap.setSpacingAfter(2);
+                        ct.addElement(imgWrap);
+
+                        Paragraph cp = new Paragraph("Figure " + figCount++ + ". " + caption, capFont);
+                        cp.setAlignment(Element.ALIGN_CENTER);
+                        cp.setSpacingAfter(10);
+                        ct.addElement(cp);
+                    } catch (Exception ex) {
+                        ct.addElement(new Paragraph("[Image Error: " + ex.getMessage() + "]", capFont));
+                    }
                     break;
 
                 case "TABLE":
-                    ct.go(); // flush column before adding table
-                    List<PdfPTable> parts = makeColumnFriendlyTables(b.text, hFont, cFont);
-                    for (PdfPTable t : parts) {
-                        t.setSpacingBefore(6f);
-                        t.setSpacingAfter(6f);
-                        ct.addElement(t);
-                        ct.go();
-                    }
+                    PdfPTable table = makeSmartTable(b.text, colW);
+                    ct.addElement(table);
                     break;
             }
 
-            // ---- Manage column flow ----
             while (true) {
                 int status = ct.go();
                 if ((status & ColumnText.NO_MORE_COLUMN) != 0) {
-                    if (twoColumn) {
-                        col = (col + 1) % 2;
-                        if (col == 0) {
-                            doc.newPage();
-                            // ✅ full height for new pages
-                            cols[0] = new Rectangle(doc.left(), doc.bottom(), doc.left() + colW, doc.top());
-                            cols[1] = new Rectangle(doc.left() + colW + gap, doc.bottom(), doc.right(), doc.top());
-                        }
-                        setColumn(ct, cols[col]);
-                    } else {
-                        // ✅ single-column fix: reset full height
+                    col = (col + 1) % 2;
+                    if (col == 0) {
                         doc.newPage();
-                        setColumn(ct, new Rectangle(doc.left(), doc.bottom(), doc.right(), doc.top()));
+                        cols[0] = new Rectangle(doc.left(), doc.bottom(), doc.left() + colW, doc.top());
+                        cols[1] = new Rectangle(doc.left() + colW + gap, doc.bottom(), doc.right(), doc.top());
                     }
+                    setCol(ct, cols[col]);
                 } else break;
             }
         }
 
         ct.go();
+        addPageNumbers(writer);
         doc.close();
     }
 
-    // ---------- Table Utilities ----------
-    private static List<PdfPTable> makeColumnFriendlyTables(String raw, Font hFont, Font cFont) throws Exception {
-        String[] lines = raw.split("\n");
-        List<String[]> rows = new ArrayList<>();
-        for (String l : lines) {
-            String s = l.trim();
-            if (s.isEmpty() || s.contains("|TABLE|") || s.contains("|ENDTABLE|")) continue;
-            rows.add(s.split("\\s*,\\s*"));
-        }
-
-        List<PdfPTable> parts = new ArrayList<>();
-        if (rows.isEmpty()) return parts;
-        int totalCols = rows.get(0).length;
-        int chunk = 5; // split after 5 columns
-
-        for (int c = 0; c < totalCols; c += chunk) {
-            int end = Math.min(c + chunk, totalCols);
-            List<String[]> sub = new ArrayList<>();
-            for (String[] row : rows) {
-                String[] slice = new String[end - c];
-                System.arraycopy(row, c, slice, 0, end - c);
-                sub.add(slice);
-            }
-            PdfPTable t = buildTable(sub, hFont, cFont);
-            parts.add(t);
-        }
-        return parts;
-    }
-
-    private static PdfPTable buildTable(List<String[]> rows, Font hFont, Font cFont) {
-        int n = rows.get(0).length;
-        PdfPTable t = new PdfPTable(n);
-        t.setWidthPercentage(95);
-        boolean header = true;
-        for (String[] row : rows) {
-            for (String c : row) {
-                PdfPCell cell = new PdfPCell(new Phrase(c, header ? hFont : cFont));
-                cell.setHorizontalAlignment(Element.ALIGN_CENTER);
-                cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-                cell.setPadding(4);
-                if (header) cell.setBackgroundColor(new Color(230, 230, 230));
-                t.addCell(cell);
-            }
-            header = false;
-        }
-        return t;
-    }
-
-    // ---------- Image Utility ----------
-    private static void addImage(ColumnText ct, String path, float colW, Font capFont) {
-        try {
-            File f = new File(path);
-            byte[] bytes = Files.readAllBytes(f.toPath());
-            Image img = Image.getInstance(bytes);
-            img.scaleToFit(colW - 10, 220);
-            img.setAlignment(Element.ALIGN_CENTER);
-            Paragraph imgP = new Paragraph();
-            imgP.add(new Chunk(img, 0, 0));
-            imgP.setAlignment(Element.ALIGN_CENTER);
-            imgP.setSpacingBefore(6);
-            imgP.setSpacingAfter(6);
-            ct.addElement(imgP);
-        } catch (Exception e) {
-            ct.addElement(new Paragraph("[Image missing: " + path + "]", capFont));
-        }
-    }
-
-    // ---------- Column Utility ----------
-    private static void setColumn(ColumnText ct, Rectangle r) {
+    private static void setCol(ColumnText ct, Rectangle r) {
         ct.setSimpleColumn(r.getLeft(), r.getBottom(), r.getRight(), r.getTop());
+    }
+
+    private static String readTable(String[] lines, int start) {
+        StringBuilder sb = new StringBuilder();
+        for (int j = start + 1; j < lines.length; j++) {
+            if (lines[j].trim().equalsIgnoreCase("|ENDTABLE|")) break;
+            sb.append(lines[j]).append("\n");
+        }
+        return sb.toString();
+    }
+
+    private static PdfPTable makeSmartTable(String text, float colW) {
+        String[] lines = text.split("\n");
+        if (lines.length == 0) return new PdfPTable(1);
+
+        String[] headers = lines[0].split(",");
+        int totalCols = headers.length;
+        List<PdfPTable> tables = new ArrayList<>();
+
+        int startCol = 0;
+        while (startCol < totalCols) {
+            int endCol = Math.min(startCol + 5, totalCols);
+            int colCount = endCol - startCol;
+
+            PdfPTable table = new PdfPTable(colCount);
+            table.setWidthPercentage(100);
+            table.setSpacingBefore(8);
+            table.setSpacingAfter(6);
+
+            for (int c = startCol; c < endCol; c++) {
+                PdfPCell cell = new PdfPCell(new Phrase(headers[c].trim(), new Font(Font.HELVETICA, 9, Font.BOLD)));
+                cell.setHorizontalAlignment(Element.ALIGN_CENTER);
+                cell.setBackgroundColor(new Color(230, 230, 230));
+                cell.setPadding(4);
+                table.addCell(cell);
+            }
+
+            for (int i = 1; i < lines.length; i++) {
+                String[] vals = lines[i].split(",");
+                for (int c = startCol; c < endCol; c++) {
+                    String val = c < vals.length ? vals[c].trim() : "";
+                    PdfPCell cell = new PdfPCell(new Phrase(val, new Font(Font.HELVETICA, 9, Font.NORMAL)));
+                    cell.setHorizontalAlignment(Element.ALIGN_CENTER);
+                    cell.setPadding(4);
+                    table.addCell(cell);
+                }
+            }
+
+            tables.add(table);
+            startCol += 5;
+        }
+
+        PdfPTable mainTable;
+        if (tables.size() == 1) {
+            mainTable = tables.get(0);
+        } else {
+            mainTable = new PdfPTable(1);
+            mainTable.setWidthPercentage(100);
+            for (PdfPTable t : tables) {
+                PdfPCell wrapper = new PdfPCell(t);
+                wrapper.setBorder(Rectangle.NO_BORDER);
+                wrapper.setPaddingBottom(8);
+                mainTable.addCell(wrapper);
+            }
+        }
+        return mainTable;
+    }
+
+    private static void addPageNumbers(PdfWriter writer) {
+        PdfContentByte cb = writer.getDirectContent();
+        Font f = new Font(Font.HELVETICA, 8, Font.NORMAL);
+        Phrase p = new Phrase(String.valueOf(writer.getPageNumber()), f);
+        ColumnText.showTextAligned(cb, Element.ALIGN_CENTER, p,
+                (writer.getPageSize().getWidth()) / 2, 25, 0);
     }
 }
